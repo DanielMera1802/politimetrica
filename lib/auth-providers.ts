@@ -1,97 +1,56 @@
 "use client"
-import {
-  GoogleAuthProvider,
-  signInWithPopup,
-  sendEmailVerification,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from "firebase/auth"
-import { auth } from "./firebase"
+
+import { supabase } from "./supabaseClient"
 import type { User } from "./types"
 
-// Autenticación con Google
+// 🔐 Login con Google
 export async function signInWithGoogle(): Promise<User> {
   try {
-    const provider = new GoogleAuthProvider()
-    // Añadir scopes para acceder a la información del perfil del usuario
-    provider.addScope("profile")
-    provider.addScope("email")
-
-    // Configurar el comportamiento de selección de cuenta
-    provider.setCustomParameters({
-      prompt: "select_account",
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { queryParams: { prompt: "select_account" } }
     })
 
-    console.log("Iniciando proceso de autenticación con Google...")
-    const result = await signInWithPopup(auth, provider)
-    console.log("Autenticación con Google exitosa")
-    const user = result.user
+    if (error) throw error
 
-    // Crear objeto de usuario con los datos de Google
-    const userData: User = {
-      id: user.uid,
-      name: user.displayName || "Usuario de Google",
-      email: user.email || "sin-email@example.com",
+    // La redirección automática se hace al proveedor
+    // Puedes dejar esto así, o manejarlo en un callback en /auth/callback
+    return {
+      id: "",
+      name: "Google User",
+      email: "unknown@example.com",
       role: "user",
       subscription: "free",
     }
-
-    // Guardar en localStorage para simular persistencia
-    localStorage.setItem("currentUser", JSON.stringify(userData))
-
-    // Disparar evento para notificar cambios
-    window.dispatchEvent(new Event("storage"))
-
-    return userData
   } catch (error: any) {
-    console.error("Error detallado al iniciar sesión con Google:", error)
-
-    // Manejar específicamente el error de dominio no autorizado
-    if (error.code === "auth/unauthorized-domain") {
-      console.error(
-        "Error de dominio no autorizado: El dominio actual no está autorizado en la consola de Firebase.",
-        window.location.hostname,
-      )
-      throw new Error(
-        "El dominio desde el que estás accediendo no está autorizado en Firebase. Debes agregar este dominio en la configuración de Firebase Auth.",
-      )
-    }
-
-    // Manejar específicamente el error de configuración no encontrada
-    if (error.code === "auth/configuration-not-found") {
-      console.error(
-        "Error de configuración de Firebase: Verifica que la autenticación de Google esté habilitada en la consola de Firebase y que el dominio esté autorizado.",
-      )
-      throw new Error(
-        "Error de configuración de Firebase: La autenticación con Google no está correctamente configurada. Por favor contacta al administrador.",
-      )
-    }
-
+    console.error("Error al iniciar sesión con Google:", error)
     throw error
   }
 }
 
-// Registro con email y envío de verificación
+// 📧 Registro con email y contraseña
 export async function registerWithEmail(name: string, email: string, password: string): Promise<User> {
   try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password)
-    const user = userCredential.user
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`, // si usas verificación por correo
+        data: { name }
+      }
+    })
 
-    // Enviar email de verificación
-    await sendEmailVerification(user)
+    if (error) throw error
 
     const userData: User = {
-      id: user.uid,
+      id: data.user?.id || "",
       name: name,
       email: email,
       role: "user",
       subscription: "free",
     }
 
-    // Guardar en localStorage para simular persistencia
     localStorage.setItem("currentUser", JSON.stringify(userData))
-
-    // Disparar evento para notificar cambios
     window.dispatchEvent(new Event("storage"))
 
     return userData
@@ -101,25 +60,23 @@ export async function registerWithEmail(name: string, email: string, password: s
   }
 }
 
-// Inicio de sesión con email
+// 🔑 Login con email y contraseña
 export async function loginWithEmail(email: string, password: string): Promise<User> {
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password)
-    const user = userCredential.user
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
-    // En una implementación real, aquí obtendríamos los datos del usuario desde nuestra base de datos
+    if (error) throw error
+
+    const user = data.user
     const userData: User = {
-      id: user.uid,
-      name: user.displayName || email.split("@")[0],
+      id: user.id,
+      name: user.user_metadata?.name || email.split("@")[0],
       email: email,
       role: email === "admin@politimetrica.com" ? "admin" : "user",
       subscription: "free",
     }
 
-    // Guardar en localStorage para simular persistencia
     localStorage.setItem("currentUser", JSON.stringify(userData))
-
-    // Disparar evento para notificar cambios
     window.dispatchEvent(new Event("storage"))
 
     return userData
